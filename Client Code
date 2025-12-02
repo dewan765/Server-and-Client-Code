@@ -1,0 +1,148 @@
+import java.io.*;
+import java.net.*;
+import java.util.Scanner;
+
+public class Client {
+
+    public static void main(String[] args) throws Exception {
+
+        Scanner scanner = new Scanner(System.in);
+
+        Socket socket = new Socket("localhost", 5000);
+
+        BufferedReader in = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+        PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
+
+
+
+
+        System.out.println(in.readLine()); // "Enter username:"
+        String username = scanner.nextLine();
+        out.println(username);
+
+        System.out.println(in.readLine()); // "Enter password:"
+        String password = scanner.nextLine();
+        out.println(password);
+
+        String loginResponse = in.readLine();
+        System.out.println(loginResponse);
+
+        if (!loginResponse.equals("AUTH_SUCCESS")) {
+            System.out.println("Login failed. Closing client.");
+            socket.close();
+            return;
+        }
+
+
+        Thread listener = new Thread(() -> {
+            try {
+                String msg;
+                while ((msg = in.readLine()) != null) {
+
+                    if (msg.startsWith("INCOMING_FILE")) {
+                        String sender = msg.split(" ")[1];
+                        String fileName = in.readLine();
+                        long fileSize = Long.parseLong(in.readLine());
+
+                        System.out.println("\nReceiving file from " + sender + ": " + fileName);
+
+                        InputStream inputStream = socket.getInputStream();
+                        FileOutputStream fos = new FileOutputStream("received_" + fileName);
+
+                        byte[] buffer = new byte[4096];
+                        long left = fileSize;
+
+                        while (left > 0) {
+                            int read = inputStream.read(buffer, 0, (int) Math.min(buffer.length, left));
+                            if (read == -1) break;
+
+                            fos.write(buffer, 0, read);
+                            left -= read;
+                        }
+
+                        fos.close();
+                        System.out.println("File received successfully!");
+                    }
+                    else {
+                        System.out.println(msg);
+                    }
+
+                }
+            } catch (Exception e) {
+                System.out.println("Disconnected from server.");
+            }
+        });
+
+        listener.start();
+
+
+        while (true) {
+            System.out.print("> ");
+            String cmd = scanner.nextLine();
+
+            if (cmd.equalsIgnoreCase("logout")) {
+                out.println("logout");
+                socket.close();
+                break;
+            }
+
+
+            if (cmd.startsWith("file ")) {
+                String[] parts = cmd.split(" ", 3);
+                String targetUser = parts[1];
+                String filePath = parts[2];
+
+                File file = new File(filePath);
+
+                if (!file.exists()) {
+                    System.out.println("File does not exist.");
+                    continue;
+                }
+
+                long fileSize = file.length();
+                String fileName = file.getName();
+
+                // STEP 1 — send command
+                out.println("SEND_FILE " + targetUser);
+
+
+                String response = in.readLine();
+                if (!response.equals("SEND_FILE_OK")) {
+                    System.out.println("Cannot send file: user offline or error.");
+                    continue;
+                }
+
+
+                out.println(fileName);
+                out.println(fileSize);
+
+
+                FileInputStream fis = new FileInputStream(file);
+                OutputStream os = socket.getOutputStream();
+
+                byte[] buffer = new byte[4096];
+                int read;
+
+                while ((read = fis.read(buffer)) != -1) {
+                    os.write(buffer, 0, read);
+                }
+
+                os.flush();
+                fis.close();
+
+
+                System.out.println(in.readLine());
+            }
+
+            else {
+                System.out.println("Unknown command. Use:");
+                System.out.println("file <username> <path>");
+                System.out.println("logout");
+            }
+        }
+
+        scanner.close();
+    }
+}
+
+
