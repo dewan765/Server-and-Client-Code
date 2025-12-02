@@ -1,0 +1,18 @@
+import java.util.HashMap;
+
+public class UserDatabase {
+
+    private static HashMap<String, String> users = new HashMap<>();
+
+    // my login list
+    static {
+        users.put("fahad", "12345");
+        users.put("dewan", "password");
+        users.put("sara", "hello123");
+    }
+
+    public static boolean authenticate(String username, String password) {
+        if (!users.containsKey(username)) return false;
+        return users.get(username).equals(password);
+    }
+}
