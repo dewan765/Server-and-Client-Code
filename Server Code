@@ -1,0 +1,135 @@
+import java.io.*;
+import java.net.*;
+import java.util.HashMap;
+
+public class Server {
+
+    // This basically stores which users are online with their sockets
+    private static HashMap<String, Socket> onlineUsers = new HashMap<>();
+    private static HashMap<String, String> statusMap = new HashMap<>();
+
+    public static void main(String[] args) {
+        try {
+            ServerSocket serverSocket = new ServerSocket(5000);
+            System.out.println("Server is running...");
+
+            while (true) {
+                Socket clientSocket = serverSocket.accept();
+                Thread t = new ClientHandler(clientSocket);
+                t.start();
+            }
+
+        } catch (IOException e) {
+            System.out.println("Server error: " + e.getMessage());
+        }
+    }
+
+    // -------------------------------
+    // This is the Client thread to handle each user
+    // -------------------------------
+    static class ClientHandler extends Thread {
+
+        Socket socket;
+
+        ClientHandler(Socket socket) {
+            this.socket = socket;
+        }
+
+        public void run() {
+            try {
+                BufferedReader in = new BufferedReader(
+                        new InputStreamReader(socket.getInputStream()));
+                PrintWriter out = new PrintWriter(socket.getOutputStream(), true);
+
+                // --- start of the login process ---
+                out.println("Enter username:");
+                String user = in.readLine();
+
+                out.println("Enter password:");
+                String pass = in.readLine();
+
+                if (!UserDatabase.authenticate(user, pass)) {
+                    out.println("AUTH_FAILED");
+                    socket.close();
+                    return;
+                }
+
+                out.println("AUTH_SUCCESS");
+                onlineUsers.put(user, socket);
+                statusMap.put(user, "Online");
+
+                System.out.println(user + " connected.");
+
+                // we wait here for actions from the client
+                String incoming;
+                while ((incoming = in.readLine()) != null) {
+
+                    if (incoming.equalsIgnoreCase("logout")) {
+                        onlineUsers.remove(user);
+                        statusMap.put(user, "Offline");
+                        socket.close();
+                        break;
+                    }
+
+                    if (incoming.startsWith("SEND_FILE")) {
+                        sendFileToUser(incoming, user, in, socket, out);
+                    }
+                }
+
+            } catch (Exception ex) {
+                System.out.println("Client disconnected.");
+            }
+        }
+    }
+
+    // Function for transferring files
+    // -------------------------------
+    private static void sendFileToUser(String msg, String sender,
+                                       BufferedReader in, Socket senderSocket,
+                                       PrintWriter senderOut) throws Exception {
+
+        String[] parts = msg.split(" ");
+        String receiver = (parts.length > 1) ? parts[1] : "";
+
+        // we check if a user is available
+        if (!onlineUsers.containsKey(receiver)) {
+            senderOut.println("USER_OFFLINE");
+            return;
+        }
+
+        senderOut.println("SEND_FILE_OK");
+
+        // we get file details from sender
+        String fileName = in.readLine();
+        long fileSize = Long.parseLong(in.readLine());
+
+        InputStream senderStream = senderSocket.getInputStream();
+
+        // we notify the receiver
+        Socket rSocket = onlineUsers.get(receiver);
+        PrintWriter rOut = new PrintWriter(rSocket.getOutputStream(), true);
+
+        rOut.println("INCOMING_FILE " + sender);
+        rOut.println(fileName);
+        rOut.println(fileSize);
+
+        // we pass the file bytes
+        OutputStream rStream = rSocket.getOutputStream();
+        byte[] buffer = new byte[4096];
+        long left = fileSize;
+
+        while (left > 0) {
+            int read = senderStream.read(buffer, 0, (int) Math.min(buffer.length, left));
+            if (read == -1) break;
+
+            rStream.write(buffer, 0, read);
+            left -= read;
+        }
+
+        rStream.flush();
+        senderOut.println("FILE_SENT");
+    }
+}
+
+
+
